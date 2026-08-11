@@ -105,3 +105,57 @@ export const reorder = mutation({
       .collect()
   },
 })
+
+const importedCue = v.object({
+  title: v.string(),
+  artist: v.optional(v.union(v.string(), v.null())),
+  startMs: v.number(),
+})
+
+export const replaceForTape = mutation({
+  args: {
+    tapeId: v.id("tapes"),
+    cues: v.array(importedCue),
+  },
+  handler: async (ctx, args) => {
+    await requireManager(ctx)
+    const tape = await ctx.db.get(args.tapeId)
+    if (!tape) throw new Error("Bande introuvable")
+    if (args.cues.length === 0) {
+      throw new Error("Au moins un cue est requis")
+    }
+
+    const existing = await ctx.db
+      .query("cues")
+      .withIndex("by_tape", (q) => q.eq("tapeId", args.tapeId))
+      .collect()
+    for (const cue of existing) {
+      await ctx.db.delete(cue._id)
+    }
+
+    for (let i = 0; i < args.cues.length; i++) {
+      const cue = args.cues[i]
+      const title = cue.title?.trim()
+      if (!title) throw new Error(`Cue ${i + 1} sans titre`)
+      if (!Number.isFinite(cue.startMs) || cue.startMs < 0) {
+        throw new Error(`Cue ${i + 1} : timecode invalide`)
+      }
+      await ctx.db.insert("cues", {
+        tapeId: args.tapeId,
+        title,
+        artist: cue.artist?.trim() || null,
+        startMs: Math.round(cue.startMs),
+        endMs: null,
+        transitionStartMs: null,
+        transitionEndMs: null,
+        blacklisted: false,
+        sortOrder: i,
+      })
+    }
+
+    return await ctx.db
+      .query("cues")
+      .withIndex("by_tape", (q) => q.eq("tapeId", args.tapeId))
+      .collect()
+  },
+})

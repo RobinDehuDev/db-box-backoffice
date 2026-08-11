@@ -1,6 +1,7 @@
 import { v } from "convex/values"
 import { mutation, query } from "./_generated/server"
 import { requireManager } from "./lib/auth"
+import { ensurePlaylistForTape } from "./lib/playlists"
 
 const categoryKey = v.union(
   v.literal("tempsForts"),
@@ -176,6 +177,38 @@ export const addPlaylist = mutation({
     await ctx.db.insert("subcategoryItems", {
       subcategoryId: args.subcategoryId,
       playlistId: args.playlistId,
+      sortOrder,
+    })
+  },
+})
+
+export const addTape = mutation({
+  args: {
+    subcategoryId: v.id("subcategories"),
+    tapeId: v.id("tapes"),
+  },
+  handler: async (ctx, args) => {
+    await requireManager(ctx)
+    const sub = await ctx.db.get(args.subcategoryId)
+    if (!sub) throw new Error("Sous-catégorie introuvable")
+    const tape = await ctx.db.get(args.tapeId)
+    if (!tape) throw new Error("Bande introuvable")
+
+    const playlistId = await ensurePlaylistForTape(ctx, args.tapeId, tape.title)
+    const existing = await ctx.db
+      .query("subcategoryItems")
+      .withIndex("by_subcategory", (q) =>
+        q.eq("subcategoryId", args.subcategoryId),
+      )
+      .collect()
+    if (existing.some((i) => i.playlistId === playlistId)) {
+      return
+    }
+    const sortOrder =
+      existing.reduce((max, i) => Math.max(max, i.sortOrder), -1) + 1
+    await ctx.db.insert("subcategoryItems", {
+      subcategoryId: args.subcategoryId,
+      playlistId,
       sortOrder,
     })
   },

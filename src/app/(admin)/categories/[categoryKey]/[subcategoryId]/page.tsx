@@ -81,7 +81,7 @@ export default function SubcategoryPage() {
           <ul className="mt-4 max-h-60 space-y-2 overflow-y-auto rounded-2xl bg-neutral-50 p-3">
             {availablePlaylists.length === 0 ? (
               <li className="text-sm text-neutral-500">
-                Aucune playlist disponible. Créez-en une dans Bandes.
+                Aucune playlist disponible. Créez-en une dans Bibliothèque.
               </li>
             ) : (
               availablePlaylists.map((pl) => (

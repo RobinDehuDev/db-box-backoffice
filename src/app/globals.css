@@ -43,6 +43,15 @@
   html {
     @apply font-sans;
   }
+
+  /* Make all backoffice buttons feel clickable by default. */
+  button {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
 }
 
 @theme inline {

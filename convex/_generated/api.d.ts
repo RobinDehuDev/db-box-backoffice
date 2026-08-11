@@ -11,6 +11,8 @@
 import type * as cues from "../cues.js";
 import type * as health from "../health.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_playlists from "../lib/playlists.js";
+import type * as lib_tapes from "../lib/tapes.js";
 import type * as playlists from "../playlists.js";
 import type * as stats from "../stats.js";
 import type * as subcategories from "../subcategories.js";
@@ -27,6 +29,8 @@ declare const fullApi: ApiFromModules<{
   cues: typeof cues;
   health: typeof health;
   "lib/auth": typeof lib_auth;
+  "lib/playlists": typeof lib_playlists;
+  "lib/tapes": typeof lib_tapes;
   playlists: typeof playlists;
   stats: typeof stats;
   subcategories: typeof subcategories;

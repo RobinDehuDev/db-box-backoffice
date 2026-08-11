@@ -1,6 +1,13 @@
 import { v } from "convex/values"
 import { mutation, query } from "./_generated/server"
 import { requireManager } from "./lib/auth"
+import { ensurePlaylistForTape } from "./lib/playlists"
+import { deleteTapeAndRelations, upsertTapeByKey } from "./lib/tapes"
+
+const importItem = v.object({
+  localFileKey: v.string(),
+  title: v.string(),
+})
 
 export const list = query({
   args: {},
@@ -90,19 +97,59 @@ export const remove = mutation({
   args: { tapeId: v.id("tapes") },
   handler: async (ctx, args) => {
     await requireManager(ctx)
-    const cues = await ctx.db
-      .query("cues")
-      .withIndex("by_tape", (q) => q.eq("tapeId", args.tapeId))
-      .collect()
-    for (const cue of cues) {
-      await ctx.db.delete(cue._id)
+    await deleteTapeAndRelations(ctx, args.tapeId)
+  },
+})
+
+export const importMany = mutation({
+  args: { items: v.array(importItem) },
+  handler: async (ctx, args) => {
+    await requireManager(ctx)
+    let imported = 0
+    for (const item of args.items) {
+      const { created } = await upsertTapeByKey(
+        ctx,
+        item.localFileKey,
+        item.title,
+      )
+      if (created) imported++
     }
-    const playlists = await ctx.db.query("playlists").collect()
-    for (const pl of playlists) {
-      if (pl.tapeId === args.tapeId) {
-        await ctx.db.patch(pl._id, { tapeId: null })
+    return { imported, total: args.items.length }
+  },
+})
+
+export const syncScan = mutation({
+  args: {
+    keys: v.array(v.string()),
+    titles: v.optional(v.record(v.string(), v.string())),
+  },
+  handler: async (ctx, args) => {
+    await requireManager(ctx)
+    const keySet = new Set(args.keys.map((k) => k.trim()).filter(Boolean))
+    let added = 0
+    let updated = 0
+
+    for (const key of keySet) {
+      const title = args.titles?.[key] ?? key
+      const result = await upsertTapeByKey(ctx, key, title)
+      if (result.created) added++
+      else if (result.updated) updated++
+    }
+
+    const allTapes = await ctx.db.query("tapes").collect()
+    let removed = 0
+    for (const tape of allTapes) {
+      if (!keySet.has(tape.localFileKey)) {
+        await deleteTapeAndRelations(ctx, tape._id)
+        removed++
       }
     }
-    await ctx.db.delete(args.tapeId)
+
+    return {
+      added,
+      updated,
+      removed,
+      total: keySet.size,
+    }
   },
 })

@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils"
 
 const navMain = [
   { href: "/stats", end: true, icon: BarChart3, label: "Statistiques" },
-  { href: "/tapes", end: false, icon: FolderOpen, label: "Bandes" },
+  { href: "/tapes", end: false, icon: FolderOpen, label: "Bibliothèque" },
 ] as const
 
 const navCategories: Array<{

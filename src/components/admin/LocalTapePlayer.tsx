@@ -29,6 +29,7 @@ type LocalTapePlayerProps = {
   activeCueIndex: number
   onTimeUpdate?: (ms: number) => void
   onActiveCueChange?: (index: number) => void
+  initialFile?: File | null
   className?: string
 }
 
@@ -53,6 +54,7 @@ export const LocalTapePlayer = forwardRef<
     activeCueIndex,
     onTimeUpdate,
     onActiveCueChange,
+    initialFile,
     className,
   },
   ref,
@@ -87,6 +89,12 @@ export const LocalTapePlayer = forwardRef<
       }
     }
   }, [])
+
+  useEffect(() => {
+    if (!initialFile) return
+    loadFile(initialFile)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialFile])
 
   const loadFile = (file: File) => {
     if (objectUrlRef.current) {

@@ -1,6 +1,7 @@
 import { v } from "convex/values"
 import { mutation, query } from "./_generated/server"
 import { requireManager } from "./lib/auth"
+import { ensurePlaylistForTape } from "./lib/playlists"
 
 export const list = query({
   args: {},
@@ -41,6 +42,40 @@ export const get = query({
   },
 })
 
+export const getByTape = query({
+  args: { tapeId: v.id("tapes") },
+  handler: async (ctx, args) => {
+    await requireManager(ctx)
+    const all = await ctx.db.query("playlists").collect()
+    const pl = all.find((p) => p.tapeId === args.tapeId) ?? null
+    if (!pl) return null
+    const tape = await ctx.db.get(args.tapeId)
+    const cueCount = (
+      await ctx.db
+        .query("cues")
+        .withIndex("by_tape", (q) => q.eq("tapeId", args.tapeId))
+        .collect()
+    ).length
+    return {
+      ...pl,
+      tapeTitle: tape?.title ?? null,
+      localFileKey: tape?.localFileKey ?? null,
+      cueCount,
+    }
+  },
+})
+
+export const ensureForTape = mutation({
+  args: { tapeId: v.id("tapes") },
+  handler: async (ctx, args) => {
+    await requireManager(ctx)
+    const tape = await ctx.db.get(args.tapeId)
+    if (!tape) throw new Error("Bande introuvable")
+    const playlistId = await ensurePlaylistForTape(ctx, args.tapeId, tape.title)
+    return await ctx.db.get(playlistId)
+  },
+})
+
 export const create = mutation({
   args: {
     name: v.string(),
@@ -54,7 +89,7 @@ export const create = mutation({
     const sortOrder =
       all.reduce((max, p) => Math.max(max, p.sortOrder), -1) + 1
     return await ctx.db.insert("playlists", {
-      name: args.name.trim() || "Untitled",
+      name: args.name.trim() || "Sans titre",
       description: args.description?.trim() ?? "",
       tapeId: args.tapeId ?? null,
       ready: args.ready ?? false,

@@ -1,0 +1,23 @@
+import type { Metadata } from "next"
+import { Providers } from "@/components/Providers"
+import "./globals.css"
+
+export const metadata: Metadata = {
+  title: "Boîte à DJ — Backoffice",
+  description:
+    "Gérez les cues et sous-catégories (métadonnées uniquement ; l’audio reste local).",
+}
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode
+}>) {
+  return (
+    <html lang="fr" className="h-full antialiased">
+      <body className="flex min-h-full flex-col font-sans">
+        <Providers>{children}</Providers>
+      </body>
+    </html>
+  )
+}

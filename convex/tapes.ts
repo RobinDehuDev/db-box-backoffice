@@ -1,7 +1,9 @@
 import { v } from "convex/values"
 import { mutation, query } from "./_generated/server"
+import type { Doc } from "./_generated/dataModel"
+import type { QueryCtx } from "./_generated/server"
 import { requireManager } from "./lib/auth"
-import { ensurePlaylistForTape } from "./lib/playlists"
+import { deleteStorageId, storageUrl } from "./lib/storage"
 import { deleteTapeAndRelations, upsertTapeByKey } from "./lib/tapes"
 
 const importItem = v.object({
@@ -9,20 +11,21 @@ const importItem = v.object({
   title: v.string(),
 })
 
+async function enrichTape(ctx: QueryCtx, tape: Doc<"tapes">) {
+  const cues = await ctx.db
+    .query("cues")
+    .withIndex("by_tape", (q) => q.eq("tapeId", tape._id))
+    .collect()
+  const authorIconUrl = await storageUrl(ctx, tape.authorIconStorageId)
+  return { ...tape, cueCount: cues.length, authorIconUrl }
+}
+
 export const list = query({
   args: {},
   handler: async (ctx) => {
     await requireManager(ctx)
     const tapes = await ctx.db.query("tapes").collect()
-    const withCounts = await Promise.all(
-      tapes.map(async (tape) => {
-        const cues = await ctx.db
-          .query("cues")
-          .withIndex("by_tape", (q) => q.eq("tapeId", tape._id))
-          .collect()
-        return { ...tape, cueCount: cues.length }
-      }),
-    )
+    const withCounts = await Promise.all(tapes.map((tape) => enrichTape(ctx, tape)))
     return withCounts.sort((a, b) => a.title.localeCompare(b.title))
   },
 })
@@ -31,7 +34,9 @@ export const get = query({
   args: { tapeId: v.id("tapes") },
   handler: async (ctx, args) => {
     await requireManager(ctx)
-    return await ctx.db.get(args.tapeId)
+    const tape = await ctx.db.get(args.tapeId)
+    if (!tape) return null
+    return await enrichTape(ctx, tape)
   },
 })
 
@@ -40,6 +45,7 @@ export const create = mutation({
     localFileKey: v.string(),
     title: v.string(),
     durationMs: v.optional(v.union(v.number(), v.null())),
+    description: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await requireManager(ctx)
@@ -54,6 +60,9 @@ export const create = mutation({
       localFileKey: key,
       title: args.title.trim() || key,
       durationMs: args.durationMs ?? null,
+      ...(args.description !== undefined
+        ? { description: args.description.trim() }
+        : {}),
     })
   },
 })
@@ -64,6 +73,7 @@ export const update = mutation({
     localFileKey: v.optional(v.string()),
     title: v.optional(v.string()),
     durationMs: v.optional(v.union(v.number(), v.null())),
+    description: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await requireManager(ctx)
@@ -73,6 +83,7 @@ export const update = mutation({
       localFileKey?: string
       title?: string
       durationMs?: number | null
+      description?: string
     } = {}
     if (args.localFileKey !== undefined) {
       const key = args.localFileKey.trim()
@@ -88,6 +99,7 @@ export const update = mutation({
     }
     if (args.title !== undefined) patch.title = args.title.trim()
     if (args.durationMs !== undefined) patch.durationMs = args.durationMs
+    if (args.description !== undefined) patch.description = args.description.trim()
     await ctx.db.patch(args.tapeId, patch)
     return await ctx.db.get(args.tapeId)
   },
@@ -151,5 +163,51 @@ export const syncScan = mutation({
       removed,
       total: keySet.size,
     }
+  },
+})
+
+export const generateAuthorIconUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireManager(ctx)
+    return await ctx.storage.generateUploadUrl()
+  },
+})
+
+export const setAuthorIcon = mutation({
+  args: {
+    tapeId: v.id("tapes"),
+    storageId: v.id("_storage"),
+  },
+  handler: async (ctx, args) => {
+    await requireManager(ctx)
+    const tape = await ctx.db.get(args.tapeId)
+    if (!tape) throw new Error("Bande introuvable")
+
+    const meta = await ctx.storage.getMetadata(args.storageId)
+    if (!meta) throw new Error("Fichier introuvable")
+
+    await deleteStorageId(ctx, tape.authorIconStorageId)
+    await ctx.db.patch(args.tapeId, { authorIconStorageId: args.storageId })
+
+    const updated = await ctx.db.get(args.tapeId)
+    if (!updated) throw new Error("Bande introuvable")
+    return await enrichTape(ctx, updated)
+  },
+})
+
+export const clearAuthorIcon = mutation({
+  args: { tapeId: v.id("tapes") },
+  handler: async (ctx, args) => {
+    await requireManager(ctx)
+    const tape = await ctx.db.get(args.tapeId)
+    if (!tape) throw new Error("Bande introuvable")
+
+    await deleteStorageId(ctx, tape.authorIconStorageId)
+    await ctx.db.patch(args.tapeId, { authorIconStorageId: undefined })
+
+    const updated = await ctx.db.get(args.tapeId)
+    if (!updated) throw new Error("Bande introuvable")
+    return await enrichTape(ctx, updated)
   },
 })

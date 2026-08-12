@@ -4,6 +4,10 @@ import Link from "next/link"
 import { useParams } from "next/navigation"
 import { useMutation, useQuery } from "convex/react"
 import {
+  ImageUploadField,
+  uploadViaConvexStorage,
+} from "@/components/admin/ImageUploadField"
+import {
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -92,6 +96,10 @@ export default function CueEditorPage() {
   const reorderCues = useMutation(api.cues.reorder)
   const replaceForTape = useMutation(api.cues.replaceForTape)
   const updatePlaylist = useMutation(api.playlists.update)
+  const updateTape = useMutation(api.tapes.update)
+  const generateAuthorIconUploadUrl = useMutation(api.tapes.generateAuthorIconUploadUrl)
+  const setAuthorIcon = useMutation(api.tapes.setAuthorIcon)
+  const clearAuthorIcon = useMutation(api.tapes.clearAuthorIcon)
 
   const playerRef = useRef<LocalTapePlayerHandle>(null)
   const importInputRef = useRef<HTMLInputElement>(null)
@@ -101,6 +109,8 @@ export default function CueEditorPage() {
   const [message, setMessage] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [initialFile, setInitialFile] = useState<File | null>(null)
+  const [descriptionDraft, setDescriptionDraft] = useState("")
+  const [descriptionDirty, setDescriptionDirty] = useState(false)
 
   useEffect(() => {
     if (!tape) return
@@ -111,6 +121,11 @@ export default function CueEditorPage() {
     if (!tape) return
     setInitialFile(getLocalFile(tape.localFileKey))
   }, [tape])
+
+  useEffect(() => {
+    if (!tape || descriptionDirty) return
+    setDescriptionDraft(tape.description ?? "")
+  }, [tape, descriptionDirty])
 
   useEffect(() => {
     if (!cues) return
@@ -163,6 +178,17 @@ export default function CueEditorPage() {
     const ms = parseTimecode(value)
     if (ms == null) return
     seekToMs(ms)
+  }
+
+  const saveDescription = async () => {
+    setBusy(true)
+    try {
+      await updateTape({ tapeId, description: descriptionDraft })
+      setDescriptionDirty(false)
+      setMessage("Description enregistrée")
+    } finally {
+      setBusy(false)
+    }
   }
 
   const saveCue = async (cueId: Id<"cues">, seg: (typeof ordered)[0]) => {
@@ -239,7 +265,57 @@ export default function CueEditorPage() {
         <p className="mt-1 font-mono text-xs text-neutral-400">
           {tape.localFileKey}
         </p>
-        <p className="mt-2 text-neutral-500">
+        <div className="mt-4 flex flex-col gap-4 lg:flex-row lg:items-start">
+          <ImageUploadField
+            label="Photo auteur / société"
+            imageUrl={tape.authorIconUrl ?? null}
+            size="md"
+            disabled={busy}
+            onUpload={async (file) => {
+              await uploadViaConvexStorage(file, {
+                generateUploadUrl: () => generateAuthorIconUploadUrl({}),
+                setStorageId: async (storageId) => {
+                  await setAuthorIcon({
+                    tapeId,
+                    storageId: storageId as Id<"_storage">,
+                  })
+                },
+                clear: async () => {
+                  await clearAuthorIcon({ tapeId })
+                },
+              })
+            }}
+            onClear={async () => {
+              await clearAuthorIcon({ tapeId })
+            }}
+          />
+          <div className="min-w-0 flex-1">
+            <label className="block">
+              <span className="text-xs uppercase tracking-wider text-neutral-400">
+                Description / historique
+              </span>
+              <textarea
+                value={descriptionDraft}
+                onChange={(e) => {
+                  setDescriptionDraft(e.target.value)
+                  setDescriptionDirty(true)
+                }}
+                rows={5}
+                className="mt-1 w-full resize-y rounded-2xl bg-neutral-50 px-4 py-3 text-sm leading-relaxed outline-none ring-1 ring-neutral-200 focus:ring-champagne"
+                placeholder="Contexte du mix, année, anecdotes…"
+              />
+            </label>
+            <button
+              type="button"
+              disabled={busy || !descriptionDirty}
+              onClick={() => void saveDescription()}
+              className="mt-2 rounded-full bg-champagne px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+            >
+              Enregistrer
+            </button>
+          </div>
+        </div>
+        <p className="mt-4 text-neutral-500">
           Écoutez la bande, repérez les transitions, puis utilisez les boutons
           tête de lecture sur chaque champ.
         </p>

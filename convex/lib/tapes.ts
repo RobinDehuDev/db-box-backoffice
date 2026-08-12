@@ -1,6 +1,7 @@
 import type { Id } from "../_generated/dataModel"
 import type { MutationCtx } from "../_generated/server"
 import { ensurePlaylistForTape } from "./playlists"
+import { deleteStorageId } from "./storage"
 
 export async function upsertTapeByKey(
   ctx: MutationCtx,
@@ -39,6 +40,11 @@ export async function deleteTapeAndRelations(
   ctx: MutationCtx,
   tapeId: Id<"tapes">,
 ): Promise<void> {
+  const tape = await ctx.db.get(tapeId)
+  if (tape) {
+    await deleteStorageId(ctx, tape.authorIconStorageId)
+  }
+
   const cues = await ctx.db
     .query("cues")
     .withIndex("by_tape", (q) => q.eq("tapeId", tapeId))

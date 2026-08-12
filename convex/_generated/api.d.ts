@@ -8,14 +8,20 @@
  * @module
  */
 
+import type * as categoryTabs from "../categoryTabs.js";
 import type * as cues from "../cues.js";
 import type * as health from "../health.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_categories from "../lib/categories.js";
+import type * as lib_categoryTabs from "../lib/categoryTabs.js";
 import type * as lib_playlists from "../lib/playlists.js";
+import type * as lib_storage from "../lib/storage.js";
+import type * as lib_syncAuth from "../lib/syncAuth.js";
 import type * as lib_tapes from "../lib/tapes.js";
 import type * as playlists from "../playlists.js";
 import type * as stats from "../stats.js";
 import type * as subcategories from "../subcategories.js";
+import type * as sync from "../sync.js";
 import type * as tapes from "../tapes.js";
 import type * as users from "../users.js";
 
@@ -26,14 +32,20 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  categoryTabs: typeof categoryTabs;
   cues: typeof cues;
   health: typeof health;
   "lib/auth": typeof lib_auth;
+  "lib/categories": typeof lib_categories;
+  "lib/categoryTabs": typeof lib_categoryTabs;
   "lib/playlists": typeof lib_playlists;
+  "lib/storage": typeof lib_storage;
+  "lib/syncAuth": typeof lib_syncAuth;
   "lib/tapes": typeof lib_tapes;
   playlists: typeof playlists;
   stats: typeof stats;
   subcategories: typeof subcategories;
+  sync: typeof sync;
   tapes: typeof tapes;
   users: typeof users;
 }>;

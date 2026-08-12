@@ -1,14 +1,6 @@
 import { defineSchema, defineTable } from "convex/server"
 import { v } from "convex/values"
-
-const categoryKey = v.union(
-  v.literal("tempsForts"),
-  v.literal("danceFloor"),
-  v.literal("cocktail"),
-  v.literal("karaoke"),
-  v.literal("blindTest"),
-  v.literal("burgerQuiz"),
-)
+import { categoryKey } from "./lib/categories"
 
 const appRole = v.union(v.literal("manager"), v.literal("admin"))
 
@@ -28,7 +20,15 @@ export default defineSchema({
     localFileKey: v.string(),
     title: v.string(),
     durationMs: v.optional(v.union(v.number(), v.null())),
+    description: v.optional(v.string()),
+    authorIconStorageId: v.optional(v.id("_storage")),
   }).index("by_localFileKey", ["localFileKey"]),
+
+  categoryTabs: defineTable({
+    categoryKey,
+    name: v.string(),
+    sortOrder: v.number(),
+  }).index("by_category", ["categoryKey", "sortOrder"]),
 
   cues: defineTable({
     tapeId: v.id("tapes"),
@@ -52,10 +52,13 @@ export default defineSchema({
 
   subcategories: defineTable({
     categoryKey,
+    tabId: v.optional(v.id("categoryTabs")),
     name: v.string(),
-    tag: v.string(),
+    iconStorageId: v.optional(v.id("_storage")),
     sortOrder: v.number(),
-  }).index("by_category", ["categoryKey", "sortOrder"]),
+  })
+    .index("by_category", ["categoryKey", "sortOrder"])
+    .index("by_tab", ["tabId", "sortOrder"]),
 
   subcategoryItems: defineTable({
     subcategoryId: v.id("subcategories"),

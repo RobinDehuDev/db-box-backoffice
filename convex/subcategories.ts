@@ -1,16 +1,27 @@
 import { v } from "convex/values"
 import { mutation, query } from "./_generated/server"
+import type { Doc, Id } from "./_generated/dataModel"
+import type { QueryCtx } from "./_generated/server"
 import { requireManager } from "./lib/auth"
+import { categoryKey } from "./lib/categories"
 import { ensurePlaylistForTape } from "./lib/playlists"
+import { deleteStorageId, storageUrl } from "./lib/storage"
 
-const categoryKey = v.union(
-  v.literal("tempsForts"),
-  v.literal("danceFloor"),
-  v.literal("cocktail"),
-  v.literal("karaoke"),
-  v.literal("blindTest"),
-  v.literal("burgerQuiz"),
-)
+async function enrichSubcategory(ctx: QueryCtx, sub: Doc<"subcategories">) {
+  const items = await ctx.db
+    .query("subcategoryItems")
+    .withIndex("by_subcategory", (q) => q.eq("subcategoryId", sub._id))
+    .collect()
+  const tab = sub.tabId ? await ctx.db.get(sub.tabId) : null
+  const iconUrl = await storageUrl(ctx, sub.iconStorageId)
+  return {
+    ...sub,
+    itemCount: items.length,
+    id: sub._id,
+    tabName: tab?.name ?? "",
+    iconUrl,
+  }
+}
 
 export const listByCategory = query({
   args: { categoryKey },
@@ -20,15 +31,15 @@ export const listByCategory = query({
       .query("subcategories")
       .withIndex("by_category", (q) => q.eq("categoryKey", args.categoryKey))
       .collect()
-    return await Promise.all(
-      subs.map(async (sub) => {
-        const items = await ctx.db
-          .query("subcategoryItems")
-          .withIndex("by_subcategory", (q) => q.eq("subcategoryId", sub._id))
-          .collect()
-        return { ...sub, itemCount: items.length, id: sub._id }
-      }),
+    const enriched = await Promise.all(
+      subs.map((sub) => enrichSubcategory(ctx, sub)),
     )
+    return enriched.sort((a, b) => {
+      const tabA = a.tabId ?? ""
+      const tabB = b.tabId ?? ""
+      if (tabA !== tabB) return String(tabA).localeCompare(String(tabB))
+      return a.sortOrder - b.sortOrder
+    })
   },
 })
 
@@ -38,37 +49,37 @@ export const get = query({
     await requireManager(ctx)
     const sub = await ctx.db.get(args.subcategoryId)
     if (!sub) return null
-    const items = await ctx.db
-      .query("subcategoryItems")
-      .withIndex("by_subcategory", (q) =>
-        q.eq("subcategoryId", args.subcategoryId),
-      )
-      .collect()
-    return { ...sub, itemCount: items.length, id: sub._id }
+    return await enrichSubcategory(ctx, sub)
   },
 })
 
 export const create = mutation({
   args: {
     categoryKey,
+    tabId: v.id("categoryTabs"),
     name: v.string(),
-    tag: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await requireManager(ctx)
+    const tab = await ctx.db.get(args.tabId)
+    if (!tab || tab.categoryKey !== args.categoryKey) {
+      throw new Error("Onglet invalide pour cette catégorie")
+    }
     const existing = await ctx.db
       .query("subcategories")
-      .withIndex("by_category", (q) => q.eq("categoryKey", args.categoryKey))
+      .withIndex("by_tab", (q) => q.eq("tabId", args.tabId))
       .collect()
     const sortOrder =
       existing.reduce((max, s) => Math.max(max, s.sortOrder), -1) + 1
     const id = await ctx.db.insert("subcategories", {
       categoryKey: args.categoryKey,
+      tabId: args.tabId,
       name: args.name.trim() || "Sans titre",
-      tag: args.tag?.trim() ?? "",
       sortOrder,
     })
-    return await ctx.db.get(id)
+    const created = await ctx.db.get(id)
+    if (!created) throw new Error("Échec de création")
+    return await enrichSubcategory(ctx, created)
   },
 })
 
@@ -76,17 +87,39 @@ export const update = mutation({
   args: {
     subcategoryId: v.id("subcategories"),
     name: v.optional(v.string()),
-    tag: v.optional(v.string()),
+    tabId: v.optional(v.id("categoryTabs")),
   },
   handler: async (ctx, args) => {
     await requireManager(ctx)
     const sub = await ctx.db.get(args.subcategoryId)
     if (!sub) throw new Error("Sous-catégorie introuvable")
-    const patch: { name?: string; tag?: string } = {}
+
+    const patch: {
+      name?: string
+      tabId?: Id<"categoryTabs">
+      sortOrder?: number
+    } = {}
+
     if (args.name !== undefined) patch.name = args.name.trim() || sub.name
-    if (args.tag !== undefined) patch.tag = args.tag.trim()
+
+    if (args.tabId !== undefined && args.tabId !== sub.tabId) {
+      const tab = await ctx.db.get(args.tabId)
+      if (!tab || tab.categoryKey !== sub.categoryKey) {
+        throw new Error("Onglet invalide pour cette catégorie")
+      }
+      const inTab = await ctx.db
+        .query("subcategories")
+        .withIndex("by_tab", (q) => q.eq("tabId", args.tabId!))
+        .collect()
+      patch.tabId = args.tabId
+      patch.sortOrder =
+        inTab.reduce((max, s) => Math.max(max, s.sortOrder), -1) + 1
+    }
+
     await ctx.db.patch(args.subcategoryId, patch)
-    return await ctx.db.get(args.subcategoryId)
+    const updated = await ctx.db.get(args.subcategoryId)
+    if (!updated) throw new Error("Sous-catégorie introuvable")
+    return await enrichSubcategory(ctx, updated)
   },
 })
 
@@ -94,6 +127,11 @@ export const remove = mutation({
   args: { subcategoryId: v.id("subcategories") },
   handler: async (ctx, args) => {
     await requireManager(ctx)
+    const sub = await ctx.db.get(args.subcategoryId)
+    if (!sub) return
+
+    await deleteStorageId(ctx, sub.iconStorageId)
+
     const items = await ctx.db
       .query("subcategoryItems")
       .withIndex("by_subcategory", (q) =>
@@ -107,24 +145,66 @@ export const remove = mutation({
   },
 })
 
-export const reorder = mutation({
+export const reorderWithinTab = mutation({
   args: {
-    categoryKey,
+    tabId: v.id("categoryTabs"),
     subcategoryIds: v.array(v.id("subcategories")),
   },
   handler: async (ctx, args) => {
     await requireManager(ctx)
     for (let i = 0; i < args.subcategoryIds.length; i++) {
       const sub = await ctx.db.get(args.subcategoryIds[i])
-      if (!sub || sub.categoryKey !== args.categoryKey) {
-        throw new Error("Sous-catégorie invalide pour cette catégorie")
+      if (!sub || sub.tabId !== args.tabId) {
+        throw new Error("Sous-catégorie invalide pour cet onglet")
       }
       await ctx.db.patch(args.subcategoryIds[i], { sortOrder: i })
     }
-    return await ctx.db
-      .query("subcategories")
-      .withIndex("by_category", (q) => q.eq("categoryKey", args.categoryKey))
-      .collect()
+  },
+})
+
+export const generateIconUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireManager(ctx)
+    return await ctx.storage.generateUploadUrl()
+  },
+})
+
+export const setIcon = mutation({
+  args: {
+    subcategoryId: v.id("subcategories"),
+    storageId: v.id("_storage"),
+  },
+  handler: async (ctx, args) => {
+    await requireManager(ctx)
+    const sub = await ctx.db.get(args.subcategoryId)
+    if (!sub) throw new Error("Sous-catégorie introuvable")
+
+    const meta = await ctx.storage.getMetadata(args.storageId)
+    if (!meta) throw new Error("Fichier introuvable")
+
+    await deleteStorageId(ctx, sub.iconStorageId)
+    await ctx.db.patch(args.subcategoryId, { iconStorageId: args.storageId })
+
+    const updated = await ctx.db.get(args.subcategoryId)
+    if (!updated) throw new Error("Sous-catégorie introuvable")
+    return await enrichSubcategory(ctx, updated)
+  },
+})
+
+export const clearIcon = mutation({
+  args: { subcategoryId: v.id("subcategories") },
+  handler: async (ctx, args) => {
+    await requireManager(ctx)
+    const sub = await ctx.db.get(args.subcategoryId)
+    if (!sub) throw new Error("Sous-catégorie introuvable")
+
+    await deleteStorageId(ctx, sub.iconStorageId)
+    await ctx.db.patch(args.subcategoryId, { iconStorageId: undefined })
+
+    const updated = await ctx.db.get(args.subcategoryId)
+    if (!updated) throw new Error("Sous-catégorie introuvable")
+    return await enrichSubcategory(ctx, updated)
   },
 })
 

@@ -58,7 +58,7 @@ export default function SubcategoryPage() {
         </Link>
         <h1 className="mt-2 text-3xl font-bold tracking-tight">{sub.name}</h1>
         <p className="mt-2 text-neutral-500">
-          {sub.tag || "Sans tag"} · éléments de playlist ordonnés
+          {sub.tabName || "Sans onglet"} · éléments de playlist ordonnés
         </p>
       </header>
 

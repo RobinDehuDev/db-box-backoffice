@@ -46,7 +46,7 @@ function isLikelyAudioFile(file: File): boolean {
 type SubOption = {
   _id: Id<"subcategories">
   name: string
-  tag: string
+  tabName: string
   categoryKey: CategoryKey
   categoryLabel: string
 }
@@ -58,6 +58,7 @@ export default function TapesPage() {
   const syncScan = useMutation(api.tapes.syncScan)
   const addTapeToSub = useMutation(api.subcategories.addTape)
   const removeTape = useMutation(api.tapes.remove)
+  const ensureTabDefaults = useMutation(api.categoryTabs.ensureDefaults)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
@@ -84,6 +85,7 @@ export default function TapesPage() {
     async (tapeId: Id<"tapes">) => {
       const options: SubOption[] = []
       for (const key of CATEGORY_KEYS) {
+        await ensureTabDefaults({ categoryKey: key })
         const list = await convex.query(api.subcategories.listByCategory, {
           categoryKey: key,
         })
@@ -91,7 +93,7 @@ export default function TapesPage() {
           options.push({
             _id: sub._id,
             name: sub.name,
-            tag: sub.tag,
+            tabName: sub.tabName,
             categoryKey: key,
             categoryLabel: CATEGORY_LABELS[key],
           })
@@ -100,7 +102,7 @@ export default function TapesPage() {
       setSubOptions(options)
       setAddTapeId(tapeId)
     },
-    [convex],
+    [convex, ensureTabDefaults],
   )
 
   const handleFiles = async (
@@ -355,7 +357,7 @@ export default function TapesPage() {
                         </span>
                         <span className="text-xs text-neutral-500">
                           {sub.categoryLabel}
-                          {sub.tag ? ` · ${sub.tag}` : ""}
+                          {sub.tabName ? ` · ${sub.tabName}` : ""}
                         </span>
                       </span>
                     </button>

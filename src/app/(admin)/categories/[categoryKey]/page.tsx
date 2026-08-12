@@ -17,6 +17,7 @@ import {
   isCategoryKey,
   type CategoryKey,
 } from "@/lib/categories"
+import type { CategoryTabRow, SubcategoryRow } from "@/lib/convex-rows"
 
 export default function CategoryPage() {
   const params = useParams<{ categoryKey: string }>()
@@ -73,12 +74,15 @@ export default function CategoryPage() {
     }
   }, [tabs, tabId])
 
-  const tabItems = useMemo(() => {
+  const tabItems = useMemo((): CategoryTabRow[] => {
     if (!tabs) return []
-    return tabs.map((tab) => ({ ...tab, id: tab._id }))
+    return tabs
   }, [tabs])
 
-  const subsByTab = useMemo(() => {
+  const subsByTab = useMemo((): Array<{
+    tab: CategoryTabRow
+    subs: SubcategoryRow[]
+  }> => {
     if (!subs || !tabs) return []
     return tabs.map((tab) => ({
       tab,
@@ -91,8 +95,7 @@ export default function CategoryPage() {
             sub.name.toLowerCase().includes(q) ||
             sub.tabName.toLowerCase().includes(q)
           )
-        })
-        .map((sub) => ({ ...sub, id: sub._id })),
+        }),
     }))
   }, [subs, tabs, query])
 
@@ -152,7 +155,7 @@ export default function CategoryPage() {
           <p className="mt-4 text-sm text-neutral-500">Aucun onglet.</p>
         ) : (
           <div className="mt-4">
-            <SortableList
+            <SortableList<CategoryTabRow>
               items={tabItems}
               onReorder={(next) => {
                 void reorderTabs({
@@ -268,8 +271,8 @@ export default function CategoryPage() {
             </p>
           ) : (
             <div className="mt-4">
-              <SortableList
-                items={query.trim() ? tabSubs : tabSubs}
+              <SortableList<SubcategoryRow>
+                items={tabSubs}
                 onReorder={(next) => {
                   if (query.trim()) return
                   void reorderWithinTab({
@@ -292,7 +295,7 @@ export default function CategoryPage() {
                         }
                         className="min-h-10 rounded-full bg-white px-4 text-sm"
                       >
-                        {tabs?.map((t) => (
+                        {tabs?.map((t: CategoryTabRow) => (
                           <option key={t._id} value={t._id}>
                             {t.name}
                           </option>
@@ -412,7 +415,7 @@ export default function CategoryPage() {
             onChange={(e) => setTabId(e.target.value as Id<"categoryTabs">)}
             className="min-h-12 rounded-full border border-neutral-200 bg-neutral-50 px-5 text-sm"
           >
-            {tabs?.map((tab) => (
+            {tabs?.map((tab: CategoryTabRow) => (
               <option key={tab._id} value={tab._id}>
                 {tab.name}
               </option>

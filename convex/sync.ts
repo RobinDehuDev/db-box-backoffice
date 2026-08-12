@@ -36,6 +36,15 @@ const subImport = v.object({
   iconContentType: v.optional(v.string()),
 })
 
+const subImportMutation = v.object({
+  convexId: v.optional(v.string()),
+  categoryKey,
+  tabName: v.string(),
+  name: v.string(),
+  sortOrder: v.number(),
+  iconStorageId: v.optional(v.string()),
+})
+
 const itemImport = v.object({
   subcategoryKey: v.object({
     categoryKey,
@@ -56,6 +65,15 @@ const tapeImport = v.object({
   authorIconContentType: v.optional(v.string()),
 })
 
+const tapeImportMutation = v.object({
+  convexId: v.optional(v.string()),
+  localFileKey: v.string(),
+  title: v.string(),
+  durationMs: v.optional(v.union(v.number(), v.null())),
+  description: v.optional(v.string()),
+  authorIconStorageId: v.optional(v.string()),
+})
+
 const playlistImport = v.object({
   convexId: v.optional(v.string()),
   localFileKey: v.string(),
@@ -65,9 +83,74 @@ const playlistImport = v.object({
   sortOrder: v.number(),
 })
 
+type ImportSnapshotCounts = {
+  tabsUpserted: number
+  subsUpserted: number
+  tapesUpserted: number
+  cuesUpserted: number
+  playlistsUpserted: number
+  itemsUpserted: number
+}
+
+export type ExportSnapshotResult = {
+  categoryTabs: Array<{
+    convexId: string
+    categoryKey: string
+    name: string
+    sortOrder: number
+  }>
+  subcategories: Array<{
+    convexId: string
+    categoryKey: string
+    tabConvexId: string | null
+    tabName: string
+    name: string
+    sortOrder: number
+    iconUrl: string | null
+  }>
+  subcategoryItems: Array<{
+    subcategoryConvexId: string
+    subcategoryKey: {
+      categoryKey: string
+      tabName: string
+      name: string
+    } | null
+    playlistConvexId: string
+    localFileKey: string | null
+    sortOrder: number
+  }>
+  playlists: Array<{
+    convexId: string
+    localFileKey: string
+    name: string
+    description: string
+    ready: boolean
+    sortOrder: number
+  }>
+  tapes: Array<{
+    convexId: string
+    localFileKey: string
+    title: string
+    durationMs: number | null
+    description: string
+    authorIconUrl: string | null
+  }>
+  cues: Array<{
+    localFileKey: string
+    title: string
+    artist: string | null
+    startMs: number
+    endMs: number | null
+    transitionStartMs: number | null
+    transitionEndMs: number | null
+    blacklisted: boolean
+    sortOrder: number
+  }>
+}
+
 export const exportSnapshot = action({
   args: { apiKey: v.string() },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<ExportSnapshotResult> => {
     requireSyncApiKey(args.apiKey)
     return await ctx.runQuery(internal.sync.exportSnapshotData, {})
   },
@@ -83,13 +166,44 @@ export const importSnapshot = action({
     cues: v.array(cueImport),
     playlists: v.array(playlistImport),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<ImportSnapshotCounts> => {
     requireSyncApiKey(args.apiKey)
+
+    const subcategories = await Promise.all(
+      args.subcategories.map(async (sub) => {
+        const { iconBase64, iconContentType, ...rest } = sub
+        let iconStorageId: string | undefined
+        if (iconBase64 && iconContentType) {
+          const bytes = decodeBase64(iconBase64)
+          const blob = new Blob([toArrayBuffer(bytes)], {
+            type: iconContentType,
+          })
+          iconStorageId = await ctx.storage.store(blob)
+        }
+        return { ...rest, iconStorageId }
+      }),
+    )
+
+    const tapes = await Promise.all(
+      args.tapes.map(async (tape) => {
+        const { authorIconBase64, authorIconContentType, ...rest } = tape
+        let authorIconStorageId: string | undefined
+        if (authorIconBase64 && authorIconContentType) {
+          const bytes = decodeBase64(authorIconBase64)
+          const blob = new Blob([toArrayBuffer(bytes)], {
+            type: authorIconContentType,
+          })
+          authorIconStorageId = await ctx.storage.store(blob)
+        }
+        return { ...rest, authorIconStorageId }
+      }),
+    )
+
     return await ctx.runMutation(internal.sync.importSnapshotData, {
       categoryTabs: args.categoryTabs,
-      subcategories: args.subcategories,
+      subcategories,
       subcategoryItems: args.subcategoryItems,
-      tapes: args.tapes,
+      tapes,
       cues: args.cues,
       playlists: args.playlists,
     })
@@ -98,7 +212,7 @@ export const importSnapshot = action({
 
 export const exportSnapshotData = internalQuery({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx): Promise<ExportSnapshotResult> => {
     const allTabs = await ctx.db.query("categoryTabs").collect()
     const allSubs = await ctx.db.query("subcategories").collect()
     const allItems = await ctx.db.query("subcategoryItems").collect()
@@ -224,16 +338,23 @@ function decodeBase64(data: string): Uint8Array {
   return Uint8Array.from(Buffer.from(data, "base64"))
 }
 
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer
+}
+
 export const importSnapshotData = internalMutation({
   args: {
     categoryTabs: v.array(tabImport),
-    subcategories: v.array(subImport),
+    subcategories: v.array(subImportMutation),
     subcategoryItems: v.array(itemImport),
-    tapes: v.array(tapeImport),
+    tapes: v.array(tapeImportMutation),
     cues: v.array(cueImport),
     playlists: v.array(playlistImport),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<ImportSnapshotCounts> => {
     let tabsUpserted = 0
     let subsUpserted = 0
     let tapesUpserted = 0
@@ -298,15 +419,11 @@ export const importSnapshotData = internalMutation({
       }
 
       let iconStorageId: Id<"_storage"> | undefined = existing?.iconStorageId
-      if (sub.iconBase64 && sub.iconContentType) {
-        const blob = new Blob([decodeBase64(sub.iconBase64)], {
-          type: sub.iconContentType,
-        })
-        const storageId = await ctx.storage.store(blob)
-        if (existing?.iconStorageId) {
+      if (sub.iconStorageId) {
+        if (existing?.iconStorageId && existing.iconStorageId !== sub.iconStorageId) {
           await deleteStorageId(ctx, existing.iconStorageId)
         }
-        iconStorageId = storageId
+        iconStorageId = sub.iconStorageId as Id<"_storage">
       }
 
       if (existing) {
@@ -350,15 +467,14 @@ export const importSnapshotData = internalMutation({
 
       let authorIconStorageId: Id<"_storage"> | undefined =
         existing?.authorIconStorageId
-      if (tape.authorIconBase64 && tape.authorIconContentType) {
-        const blob = new Blob([decodeBase64(tape.authorIconBase64)], {
-          type: tape.authorIconContentType,
-        })
-        const storageId = await ctx.storage.store(blob)
-        if (existing?.authorIconStorageId) {
+      if (tape.authorIconStorageId) {
+        if (
+          existing?.authorIconStorageId &&
+          existing.authorIconStorageId !== tape.authorIconStorageId
+        ) {
           await deleteStorageId(ctx, existing.authorIconStorageId)
         }
-        authorIconStorageId = storageId
+        authorIconStorageId = tape.authorIconStorageId as Id<"_storage">
       }
 
       if (existing) {

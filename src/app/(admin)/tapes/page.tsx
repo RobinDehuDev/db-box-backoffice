@@ -10,6 +10,7 @@ import {
   CATEGORY_LABELS,
   type CategoryKey,
 } from "@/lib/categories"
+import type { TapeRow } from "@/lib/convex-rows"
 import {
   folderNameFromFileList,
   itemsFromFileList,
@@ -257,7 +258,7 @@ export default function TapesPage() {
           </p>
         ) : (
           <ul className="mt-4 divide-y divide-neutral-100">
-            {tapes.map((tape) => (
+            {tapes.map((tape: TapeRow) => (
               <li
                 key={tape._id}
                 className="flex flex-col gap-2 py-4 sm:flex-row sm:items-center sm:justify-between"
